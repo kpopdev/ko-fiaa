@@ -1,51 +1,65 @@
 import express from 'express';
 
 const app = express();
-
-// Important: Parse both JSON and form-urlencoded (for Ko-fi)
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-const KO_FI_VERIFICATION_TOKEN = "bedba971-4f64-4d33-b3bb-a0af9b508e12"; // ← You can paste your real token here
+const KO_FI_VERIFICATION_TOKEN = "bedba971-4f64-4d33-b3bb-a0af9b508e12"; // your token
 
-// Nice info page when visiting the root URL
+// Store the latest subscription here
+let latestSubscription = null;
+
 app.get('/', (req, res) => {
   res.send(`
-    <h1>✅ Ko-fi JSON Webhook is Running</h1>
-    <p><strong>Your webhook URL:</strong> https://kofi-json.onrender.com/webhook</p>
-    <p>Check the <strong>Render Logs</strong> tab to see incoming data.</p>
+    <h1>✅ Ko-fi Webhook Running</h1>
+    <p>Webhook URL: <strong>https://kofi-json.onrender.com/webhook</strong></p>
+    <p>Get latest subscription: <a href="/latest">/latest</a></p>
   `);
+});
+
+// New endpoint for your Discord bot
+app.get('/latest', (req, res) => {
+  if (latestSubscription) {
+    res.json(latestSubscription);   // ← Returns clean JSON
+  } else {
+    res.json({ message: "No subscription received yet" });
+  }
 });
 
 app.post('/webhook', (req, res) => {
   let data = req.body;
 
-  // Handle Ko-fi's form-urlencoded format (data=JSON string)
+  // Handle Ko-fi's form-urlencoded format
   if (data.data && typeof data.data === 'string') {
     try {
       data = JSON.parse(data.data);
-    } catch (e) {
-      console.log("Failed to parse Ko-fi data field");
-    }
+    } catch (e) {}
   }
 
-  // Security check (optional but good)
   if (KO_FI_VERIFICATION_TOKEN && data.verification_token !== KO_FI_VERIFICATION_TOKEN) {
-    console.log("❌ Invalid verification token");
     return res.status(403).send("Invalid token");
   }
 
   console.log("=== NEW KO-FI PAYLOAD RECEIVED ===");
   console.log(JSON.stringify(data, null, 2));
 
-  if (data.is_subscription_payment) {
-    console.log("\n✅ SUBSCRIPTION EVENT");
-    console.log("New member?", data.is_first_subscription_payment ? "YES 🆕" : "NO (recurring)");
-    console.log("Name:", data.from_name);
-    console.log("Tier:", data.tier_name || "None");
-    console.log("Amount:", data.amount, data.currency);
-  } else {
-    console.log("\n📦 This is a regular Donation (not a subscription)");
+  // Save ONLY subscription events as "latest"
+  if (data.is_subscription_payment === true) {
+    latestSubscription = {
+      timestamp: data.timestamp,
+      type: data.type,
+      from_name: data.from_name,
+      amount: data.amount,
+      currency: data.currency,
+      tier_name: data.tier_name || "Default",
+      is_first_subscription_payment: data.is_first_subscription_payment,
+      message: data.message,
+      email: data.email,
+      discord_username: data.discord_username,
+      full_payload: data   // keep everything if you need more fields
+    };
+
+    console.log("✅ Saved as latest subscription!");
   }
 
   res.status(200).send("OK");
@@ -53,5 +67,6 @@ app.post('/webhook', (req, res) => {
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`🚀 Server running → https://kofi-json.onrender.com/webhook`);
+  console.log(`🚀 Server running → https://kofi-json.onrender.com`);
+  console.log(`   → Test latest data at: https://kofi-json.onrender.com/latest`);
 });
